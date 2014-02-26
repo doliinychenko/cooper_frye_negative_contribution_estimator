@@ -1,0 +1,220 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[english]{babel}
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{siunitx}
+
+
+
+\begin{document}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{General explanation of calculation}
+
+One of the powerful theoretical tools to analyse heavy ion collisions is transport approach. Its idea is to treat the process simulating individual particle collisions successively one by one. A well-known realization of such approach is UrQMD \cite{ref:UrQMD}. However, if particle density is high enough, the process cannot be reduced to individual collisions, because of strong fields acting on distances comparable to particle mean free path. Such high densities are reached in modern experiments and the evidence of this is the following. Particle multiplicities and spectra are predicted well by models that  assume thermal equilibrium. This implies that the fireball formed in the collision equilibrates fast. However, one does not see such fast thermal equilibration in the transport models. Another observables that cannot be explained by transport models for the same reason are flows and correlations. This all evidences that at early stage of heavy ion collision density is too high to use pure transport model.
+
+There are at least two ways to account for phenomena at high density: one is to introduce fields, another is to model part of the fireball evolution by hydrodynamics. The latter operates with continuous variables of pressure, density, energy density, etc. and is only applicable when mean free path is much smaller than system size: $\lambda \ll l_{syst}$. Therefore at some moment one has to switch from hydrodynamic description back to particles. This is usually done in the following way. Some hypersurface of transition  $\Sigma(t,x,y,z)$ is chosen. On this hypersurface particles are randomly generated, their multiplicity and momenta are chosen using Cooper-Frye prescription:
+\begin{equation}
+p^{0} \frac{d^3 N}{d^3 p} = f(p) p^{\mu} d\sigma_{\mu} \,,
+\end{equation}
+where $p$ is particle 4-momentum, $d\sigma$ is normal 4-vector of hypersurface element and $f(p)$ is distribution function in the rest frame. The whole formula is just a Lorentz-invariant form of statement that particle distribution in the local rest frame is $f(p)$. 
+
+The problematic aspect of such procedure is that some particles from the distribution should fly back into hydro region and cause feedback, which is extremely hard to take into account. Since particles crossing hypersurface inwards have $p^{\mu} d\sigma_{\mu} < 0 $ I will further refer to them as negative contributions. To avoid considering the feedback effect, in practice particles are not allowed to fly inside hypersurface by just rejecting inward flying particles at generation. This causes, however, the problem with conservation laws. Current codes rely on the belief that violation of conservation laws is small. To support this belief and fing its range of applicability some estimates were already performed (..list of some). However, there is more than one way to make such estimate and results of estimates may in principle radically differ. Therefore, let us try to answer two questions:
+\begin{enumerate}
+\item {\bf How large are negative contributions estimated from Cooper-Frye formula?}
+\item {\bf How large are negative contributions in pure transport approach if one just counts particles crossing hypersurface?}
+\end{enumerate}
+Answers to these questions can be in principle very different, since Cooper-Frye formula implies thermal equilibrium and transport approach does not. As an example, imagine a spherical source emitting particles uniformly in all directions. Let us consider a spherical surface with radius larger than source radius. Particles are crossing this surface only from inside to outside and this is also what transport approach will tell us. However, calculation via Cooper-Frye formula will inevitably give non-zero number of particles flying inwards the surface. In the case of thermal equilibrium answers to both questions should be identical. This provokes one more question, which is constantly and productively studied during many years: {\bf How far is fireball in heavy ion collisions from local thermal and chemical equilibrium? }
+
+Answers to first two questions and some aspects of the third make the essence of my ''$T^{\mu \nu}$ project''. 
+
+Next sections cover the following steps of calculation:
+\begin{enumerate}
+\item Reading and understanding the output of UrQMD transport code
+\item Calculating hydro variables on space-time grid
+\item Finding local rest frame (both Landau and Eckart definitions) and quantities in it
+\item Extracting temperature and chemical potentials from energy and baryon density using Hadron Gas equation of state in local Landau rest frame
+\item Getting hypersurface $\Sigma(t,x,y,z)$ of constant energy density
+\item Counting UrQMD particles crossing $\Sigma(t,x,y,z)$
+\item Cooper-Frye calculations on $\Sigma(t,x,y,z)$
+\end{enumerate}
+
+
+\section{Reading UrQMD output}
+
+UrQMD produces various forms of output described briefly in the UrQMD guide. For my calulation I need to know the whole event evolution, which makes it necessary to work either with output file 15 (list of collisions) or file 20 (list of collisions in OSCAR format). File 20 looks simpler and more appropriate for my purpose, since it contains also initial and final states of event. However, it appeared that file 20 does not have nucleon coordinates in the initial state, but contains particle freeze-out coordinates instead. This is also highly misleading, because in file 20 initial state has the same formatting as any other collision, but sense of numbers is different. In addition file20 contains bug, connected with transforming internal UrQMD particle \emph{ityp} to standard PDGid. The bug is that some particles in file 20 have invalid $PDGid = 0$. 
+
+Therefore, the only working solution was to trace collisions through file 15 and read initial and final state from file 14. By default initial state is not printed to file 14, however this can be changed by putting CTOption(4) = 1 in UrQMD inputfile. Let me explain reading data from files 14 and 15 in more detail.
+
+My goal is to obtain an array of straight pieces of particle trajectories from UrQMD event. Piece of trajectory has the following attributes: starting point $r_i(0:3)$, final point $r_f(0:3)$, momentum $p(0:3)$, particle id in UrQMD - $ityp$, baryon charge $B$, strangeness $S$ and doubled projection of isospin $2I_3$. In UrQMD to identify particle one needs to know both $ityp$ and $2I_3$, for example $ityp = 106$ identifies kaon, but you can tell $K^+$ from $K^0$ only if you know $I_3$. Baryon charge and strangeness can be obtained solely from $ityp$, but I save them additionally for convenience.
+
+The algorithm to get the structure I need is the following:
+\begin{enumerate}
+\item Read file 14 initial state and add each particle as starting point of the line.
+\item Read file 15 collision, try to match incoming particles as an end point of some line. Particle matches if its 4-momentum coincides. If incoming particle of some collision matches to no starting point or matches more than once - this is an error. 
+\item Add outgoing particles of collision as new starting points.
+\item Repeat such procedure for all collisions in file 15, except Pauli-blocked collisions and decays, since they do not change particle trajectory. Pauli-blocked collisions and decays can be just ignored.
+\item Check if collision satisfies conservation laws (energy, B, S). Pauli-blocked collisions and decays obviously do not, so ignore them.
+\item Read final state from file 14 and try to match every particle as end point.
+\item Check if all lines have start and end point. If not, this is an error.
+\item Check if $\frac{r_i^{\mu}-r_f^{\mu}}{p^{\mu}/p^0} = const \,, \mu = 0..3$. For initial nucleons this check is never satisfied, because of UrQMD feature: before the first interaction nucleons formally have Fermi momenta, but their trajectory is $x=x_{init}$, $y=y_{init}$. Therefore I have to ignore this test for initial nucleons. One more check is that every particle moves forward in time: $r_f^0 > r_i^0$. 
+\end{enumerate}
+
+In UrQMD version 3.3p2 (current web version, 05.02.14) there is a bug with particle table rearrangement, that sometimes leads to  $r_f^0 < r_i^0$, i.e. particle moving backward in time. I used a patch that corrects this bug. 
+
+Finally, for each UrQMD event I have an array of straight lines of particle trajectories. This array contains all necessary information for my further purposes. 
+
+
+
+\section{Energy-momentum tensor and currents on the space-time grid}
+
+Next step after reading the UrQMD output is building a grid and calculating hydrodynamic variables on it. My grid is a rectangular grid with a grid point in the center of the cell. It means that grid point $(t,x,y,z)$ is ascribed values contained in volume $(x-dx/2; x+dx/2]$x$(y-dy/2; y+dy/2]$x$(z-dz/2; z+dz/2]$ in the time moment $t$. In the programming terms number of array cell for particle with coordinate $x$ is $ix = nint(x/dx)$, where $nint$ command returns nearest integer.
+
+Expressions for energy-momentum tensor and currents are the following:
+\begin{eqnarray}
+T^{\mu \nu} &=&\frac{1}{V} \sum \frac{p^{\mu}p^{\nu}}{p^0} \\
+j^{\mu}_B &=& \frac{1}{V} \sum \frac{p^{\mu}}{p^0} B \\
+j^{\mu}_S &=& \frac{1}{V} \sum \frac{p^{\mu}}{p^0} S \,,
+\end{eqnarray}
+where summation is over all particles in a cell. Both energy-momentum tensor and currents are averaged by large number of events (4000-6000) to make them smooth. Thus, I have obtained $T^{\mu \nu}$ and $j^{\mu}$ in the computational frame. 
+
+Next I find $T^{\mu \nu}$ and $j^{\mu}$ in local Landau and in local baryon charge Eckart frames of each cell. Landau frame is defined so that $T^{i 0}_{LRF} = 0\,, i=1..3$, i.e. energy flow is zero. In Eckart frame $j^i_{B, ERF} = 0\,, i=1..3$, i.e. baryon charge flow is zero. Note that Eckart rest frame is only defined when there is non-zero baryon charge in the cell. At high collision energy number of anti-baryons approaches to number of baryons and Eckart frame becomes poorly defined. That is why I use Eckart frame only for comparison with Landau frame.
+
+To go from computational frame to Landau or Eckart frame, one has to find boosts, after which $T^{i 0}_{LRF} = 0\,, i=1..3$ or $j^i_{B, ERF} = 0\,, i=1..3$ condition respectively is satisfied. For Eckart frame one just has to boost back to vector proportional to $j^{\mu}_B$. To find boost for Landau frame, I solve generalized eigenvalue problem $(T^{\mu \nu} - \lambda g^{\mu \nu}) h_{\nu} = 0$. The largest eigenvalue is energy density and corresponding eigenvector is boost velocity to Landau frame. After boosting energy-momentum tensor from computational frame to Landau frame I check if condition $T^{i 0}_{LRF} = 0\,, i=1..3$ is satisfied. Numerically I always get $\frac{|T^{i 0}_{LRF}|}{T^{00}_{LRF}} < 10^{-11}$.
+
+\section{Interpolation}
+
+In this section I give formulas of my interpolation. Suppose I have some field $A(it,ix,iy,iz)$ on the grid. I want to interpolate $A$ to some arbitrary point $(t,x,y,z)$ in the range of the grid. My algorithm is the following:
+\begin{enumerate}
+\item Find nearest lower point to $(t,x,y,z)$: $(it,ix,iy,iz) = \\ =(floor(t/dt),floor(x/dx), floor(y/dy), floor(z/dz))$.
+\item Find relative position in the hypercube $A(it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)$ - $(c_t,c_x,c_y,c_z) = (t/dt - it, x/dx - ix, y/dy - iy, z/dz -iz)$. Now the problem has reduced to interpolating to point $(c_t,c_x,c_y,c_z)$ in hypercube $H(0:1,0:1,0:1,0:1)$
+\item $A(t,x,y,z) = \sum\limits_{i=0}^{1} \sum\limits_{j=0}^{1} \sum\limits_{k=0}^{1} \sum\limits_{l=0}^{1} |1-i-c_t| |1-j-c_x| \cdot \\ \cdot |1-k-c_y| |1-l-c_z| H(i,j,k,l)$
+\end{enumerate}
+
+\section{Equation of state}
+
+I extracted temperatures and chemical potentials for each cell using hadron gas equation of state. Suppose that temperature $T$, $\mu_B$ and $\mu_S$ is already known. Then energy density, baryon density and strangeness density are:
+\begin{eqnarray}
+\epsilon &=& \sum_p \frac{g_p}{(2\pi \hbar c)^3} \int 
+             \frac{\sqrt{k^2 +m_p^2}}{e^{(\sqrt{k^2 + m_p^2}-\mu)/T} \pm 1}  d^3k  \\
+n_b &=&  \sum_p \frac{g_p B_p}{(2\pi \hbar c)^3} \int 
+             \frac{d^3k }{e^{(\sqrt{k^2 + m_p^2}-\mu_B B_p  - \mu_S S_p)/T} \pm 1} \\
+n_s &=&  \sum_p \frac{g_p S_p}{(2\pi \hbar c)^3} \int 
+             \frac{d^3k }{e^{(\sqrt{k^2 + m_p^2}- \mu_B B_p  - \mu_S S_p)/T} \pm 1}             
+\end{eqnarray}
+Summation is performed by all particles in UrQMD. Calculating the integrals one gets
+
+\begin{eqnarray} 
+\label{eq:eps}
+\epsilon = \sum_p \frac{\pi g_p T m_p^3}{(2\pi \hbar c)^3}
+                    \sum_{n=1}^{\infty} \frac{(\mp 1)^{n-1}}{n} e^{\frac{n (\mu_B B_p  + \mu_S S_p)}{T}}
+                    \bigg[ 3K_3 \left(\frac{nm_p}{T}\right) + K_1\left(\frac{nm_p}{T}\right) \bigg] \\
+%             
+\label{eq:n_b}       
+n_b = \sum_p B_p \frac{g_p  T m_p^2 }{2\pi^2 (\hbar c)^3} 
+          \sum_{n=1}^{\infty} \frac{(\mp 1)^{n-1}}{n} e^{\frac{n(\mu_B B_p  + \mu_S S_p)}{T}}
+          K_2 \bigg( \frac{nm_p}{T} \bigg)\\
+%          
+\label{eq:n_s}
+n_s = \sum_p S_p \frac{g_p  T m_p^2 }{2\pi^2 (\hbar c)^3} 
+          \sum_{n=1}^{\infty} \frac{(\mp 1)^{n-1}}{n} e^{\frac{n (\mu_B B_p  + \mu_S S_p)}{T}} 
+          K_2 \bigg( \frac{nm_p}{T} \bigg)
+\end{eqnarray}
+Given this formulas calculating $\epsilon$, $n_b$ and $n_s$ from $T$, $\mu_b$ and $\mu_s$ is straightforward. To get $T$, $\mu_b$ and $\mu_s$ from $\epsilon$, $n_b$ and $n_s$ one has to solve system of equations (\ref{eq:eps},\ref{eq:n_b},\ref{eq:n_s}), where $\epsilon$ is energy density in the cell, $n_b$ is baryon density in the cell and $n_s$ is assumed 0. 
+
+Solution of such system is already given in the form of table, that UrQMD uses if it is run with hydro.
+To check that solution is correct I substitute it back to the equations (\ref{eq:eps},\ref{eq:n_b},\ref{eq:n_s}) and see if they are satisfied. Currently with input $(\epsilon,n_b,n_s) = (0.15, 0.6, 0.0)$ I get back $(0.1475, 0.600, -0.005)$.
+
+Table is organized as follows: energy and baryon density are given in columns in units of $\epsilon_0 = 0.14651751415742 \, \si{\giga\electronvolt\per\femto\meter\cubed}$ and $n_{b0} = 0.15891 \, \si{\per\femto\meter\cubed}$ respectively. Next columns are temperature $T$, quark chemical potential $\mu_q = \mu_b/3$ and $\mu_q - \mu_s$.
+
+\section{Explicit counting of particles crossing hypersurface}
+
+To count particles crossing hypersurface I need only to know the energy density in Landau rest frame in all space $\epsilon_{L}(t,x,y,z)$. I know it on the grid and doing linear interpolation I can find it in any point. Then I take straight pieces of particle trajectories for one event and for each piece I do the following procedure:
+\begin{itemize}
+\item Starting from initial point of line I go with the time step $dt_0 = dt/10$, where $dt$ is a grid  timestep, and get $\epsilon_1 = \epsilon_{intpl}(t,x(t),y(t),z(t))$ and $\epsilon_2 = \epsilon_{intpl}(t+dt_0,x(t+dt_0),y(t+dt_0),z(t+dt_0))$.
+\item Let $\epsilon = \epsilon_0$ be hypersurface criterion. If $\epsilon_1 > \epsilon_0$ and $\epsilon_2 < \epsilon_0$ then particle crosses hypersurface from inside to outside in the time interval $(t,t+dt_0)$. If $\epsilon_1 < \epsilon_0$ and $\epsilon_2 > \epsilon_0$ then particle crosses hypersurface from outside to inside in the time interval $(t,t+dt_0)$.
+\end{itemize} 
+
+
+
+\section{Cooper-Frye calculation of particles crossing hypersurface}
+
+In previous sections I already described how I get energy density in Landau rest frames for each grid point. I want to build hypersurface $\Sigma$ of constant energy density, $\epsilon|_{\Sigma} = \epsilon_0$. For this purpose let us consider some hypercube of the nearest grid points. If there is a point in this hypercube, where $\epsilon > \epsilon_0$ and exists a point, where $\epsilon < \epsilon_0$ then $\Sigma$ crosses this hypercube. The tricky task of finding the hypersurface with no holes is delivered to Cornelius routine \cite{ref:Cornelius}. It returns middle elements of hypersurface elements $V_{mid}$ and normal 4-vector to them $d\sigma_{\mu}$. 
+
+All the values on the grid are interpolated to $V_{mid}$, following the ''interpolate last'' principle. This means for example that to calculate interpolated rest frame baryon density I first calculate $j_B^{\mu} u_{\mu}$ on the grid and then interpolate result to $V_{mid}$. Another possible way would be first to interpolate $j_B^{\mu}$ and $u_{\mu}$ to $V_{mid}$ and then calculate $j_B^{\mu} u_{\mu}$.
+
+I do not interpolate all components of $u_{\mu}$ independently. Instead I interpolate $\beta_{x,y,z}$ and then calculate $\gamma$, so that relation $u_{\mu}u^{\mu} = 1$ holds for interpolated velocity.
+
+It turns out that it is better to get temperatures on the grid and then interpolate than interpolate $T^{\mu\nu}$ to the grid, find rest frame for it and get $T$ and chemical potentials from EoS. The latter method causes much wider distribution of temperature on the hypersurface.
+Now for each element of hypersurface I have $d\sigma_{mu}$, 4-velocity $u_{\mu}$, temperature $T$ and chemical potentials $\mu_b$ and $\mu_s$. This is enough to use Cooper-Frye formulas.
+
+To get Cooper-Frye $T^{\mu\nu}$ I calculate energy density and pressure in the Landau rest frame and then use the following formula.
+\begin{eqnarray}
+T^{\mu\nu} = \epsilon u^{\mu} u^{\nu} + p (u^{\mu} u^{\nu} - g^{\mu\nu})
+\end{eqnarray}
+Note that it assumes equilibrium and therefore result should not exactly coincide with $T^{\mu\nu}$ in the cell calculated as sum by particles in the cell $T^{\mu \nu} =\frac{1}{V} \sum \frac{p^{\mu}p^{\nu}}{p^0}$.
+
+
+
+
+
+
+\section{Tests}
+
+An important test is to compare energy flow out of hypersurface calculated by particle counting and by $\int_{\Sigma} T^{\mu0}d\sigma_{\mu}$. In the absence of numerical errors and calculation mistakes they should be equal. The same holds for baryon charge and strangeness:
+\begin{eqnarray}
+(E_{out} - E_{in}) |_{\Sigma} = \int _{\Sigma} T^{\mu0}d\sigma_{\mu}\\
+(B_{out} - B_{in}) |_{\Sigma} = \int _{\Sigma} j_B^{\mu}d\sigma_{\mu}\\
+(S_{out} - S_{in}) |_{\Sigma} = \int _{\Sigma} j_S^{\mu}d\sigma_{\mu}
+\end{eqnarray}
+
+Currently for 40 AGeV Au+Au collision this conditions are not exactly satisfied. The biggest discrepancy is for energy: for time from 3 fm to the end energy flow out is 1658.6 GeV and energy inside the hypersurface at $t = 3 fm/c$ is 1693.3 GeV. To see in detail where the problem is I do such comparison for each time step. Results are shown on the figure \ref{fig:Econsdt03dz03}. My first guess was that this problem might be caused by too large grid spacing, therefore I chose dt = 0.33 fm/c and dz = 0.33 fm. At such spacing (even already at dt = 0.5 fm/c and dz = 0.5 fm) interpolation of $T^{\mu\nu}$ to hypersurface gives very close result to the case when there is no interpolation at all. Therefore, it is not interpolation that causes problem. From figure \ref{fig:Econsdt03dz03} one can see that discrepancy is at earlier times. I though that it might be caused by parts of hypersurface that move fast, the caps. I removed the caps and did the same comparison again. Indeed, discrepancy became smaller, but did not disappear.
+
+
+\begin{figure}
+
+\begin{minipage}[h]{0.49\linewidth}
+\center{\includegraphics[height=6cm]{Econs2.eps}}
+\end{minipage}
+\hfill
+\begin{minipage}[h]{0.49\linewidth}
+\center{\includegraphics[height=6cm]{Econs_caps_cut.eps}}
+\end{minipage}
+
+\caption{Energy flows versus time, dt = 0.33 fm/c, dz = 0.33 fm, dy = 1 fm, dx = 1 fm. Left: full surface. Right: caps are cut}
+\label{fig:Econsdt03dz03}
+\end{figure}
+
+
+
+\begin{thebibliography}{99}
+
+\bibitem{ref:UrQMD}
+M. Bleicher, E. Zabrodin, C. Spieles, S.A. Bass, C. Ernst, S. Soff, H. Weber, H. Stoecker and
+W. Greiner. J. Phys. G25 (1999), 1859–1896
+
+\bibitem{ref:Cornelius}
+ P. Huovinen and H. Petersen,  Eur. Phys. J. A (2012) 48: 171
+
+\bibitem{ref:Cser1989}
+%
+E.F. Staubo, A.K. Holme, L.P. Csernai, M. Gong and D. Strottman, Phys. Lett.B 229(1989) 351
+
+\bibitem{ref:Ruus1987}
+Ruuskanen, Acta Phys.Polon. B18 (1987) 551
+
+\bibitem{ref:LL6}
+%
+Landau, Lifshitz, tome 6, Hydrodynamics
+
+
+
+\end{thebibliography}
+
+\end{document}
