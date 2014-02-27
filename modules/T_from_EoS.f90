@@ -106,7 +106,7 @@ contains
       close(55)
 
 
-      open(unit=8, file = "particles.txt")
+      open(unit=8, file = "/home/oliiny/Work/Tmn_project/hyd_vs_prt_v2/eosfiles/UrQMD_particles.txt")
 
       read (8,*) Npart !reading number of particles from file
       do i = 1, Npart ! reading all the particle table

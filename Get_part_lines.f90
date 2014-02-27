@@ -16,8 +16,8 @@ use read_f14f15, only: gen_part, read_f15_event_header, read_f14_f15_event
  integer, parameter :: max_events_per_output = 500
  integer, parameter :: maxnevt = 4500
  integer, parameter :: fnum_start = 0
- character(LEN=*), parameter :: urqmdf14_input = "/tmp/Tmn_proj_data/UrQMD_f14f15/E40b0ev4500.f14"
- character(LEN=*), parameter :: urqmdf15_input = "/tmp/Tmn_proj_data/UrQMD_f14f15/E40b0ev4500.f15"
+ character(LEN=*), parameter :: urqmdf14_input = "/tmp/Tmn_proj_data/UrQMD_f14f15/E10b0ev4500.f14"
+ character(LEN=*), parameter :: urqmdf15_input = "/tmp/Tmn_proj_data/UrQMD_f14f15/E10b0ev4500.f15"
  character(LEN=*), parameter :: output_prename = "/tmp/Tmn_proj_data/TrajLines/"
  character(LEN=100) :: output_name
  logical op

@@ -17,7 +17,7 @@ all: $(PROGRAMS)
 Get_part_lines: Get_part_lines.o read_f14f15.o
 	$(FC) $(FCFLAGS) -o $@ $^ -I${OBJ}
 
-Analyze_part_lines: Analyze_part_lines.o read_f14f15.o cornelius.o eispack.o Land_Eck.o
+Analyze_part_lines: Analyze_part_lines.o read_f14f15.o cornelius.o eispack.o Land_Eck.o CF_int.o T_from_EoS.o gauss_legendre.o Histogram_module.o
 	$(FC) $(FCFLAGS) -o $@ $^ -I${OBJ}
 
 %: %.o

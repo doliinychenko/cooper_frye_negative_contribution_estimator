@@ -1,7 +1,7 @@
 module Histogram_module
 implicit none
 
-integer, parameter :: max_hist_size=3500
+integer, parameter :: max_hist_size=100
 
 type histo
 sequence
