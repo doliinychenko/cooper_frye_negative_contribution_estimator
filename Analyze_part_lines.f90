@@ -1,9 +1,10 @@
-program read_sorted_lines
+program analyze_part_lines
 
  use read_f14f15, only: gen_part
  use Land_Eck, only: FindLandau, LorentzProduct, EuclidProduct
  use Histogram_module, only: histo, HistNew, HistAdd, BinToValue, HistPrint, HistBinSize
- use T_from_EoS, only: read_eos_tables, GetTemp, GetMuB, GetMuS
+ use T_from_EoS, only: read_eos_tables, GetTemp, GetMuB, GetMuS, E_hadgas, B_hadgas, S_hadgas, pressure_hadgas
+ use CF_int, only: dNdy, dNptdpt, init_CF_int
 
  implicit none
 
@@ -79,13 +80,13 @@ program read_sorted_lines
  double precision, dimension(:,:,:,:), allocatable :: EdensL
  double precision, dimension(:,:), allocatable :: mom_tot
  double precision, dimension(:), allocatable :: B_tot, S_tot, I3_tot
- double precision, dimension(:), allocatable :: E_fl, B_fl, S_fl
- double precision, dimension(:), allocatable :: E_in, B_in, S_in
+ double precision, dimension(:), allocatable :: E_fl, B_fl, S_fl, E_in, B_in, S_in, E_CF, B_CF, S_CF
 
  
  integer fnum, mu, nu, io, a,b,c,d
- integer i,it,ix,iy,iz
- double precision r1(0:3), Tmn_hlp(0:3,0:3), TmnL_hlp(0:3, 0:3), jB_hlp(0:3), jS_hlp(0:3), ar
+ integer i,j,k, it,ix,iy,iz
+ double precision r1(0:3), r2(0:3), Tmn_hlp(0:3,0:3), TmnL_hlp(0:3, 0:3), jB_hlp(0:3), jS_hlp(0:3), ar, br
+ double precision dt_ptraj, t_ptraj, umu_sigmu, bin_val
 
 
  !===========================================================================================
@@ -106,10 +107,13 @@ program read_sorted_lines
  allocate(EdensL(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(E_fl(tstart_step:tend_step+1))
  allocate(E_in(tstart_step:tend_step+1))
+ allocate(E_CF(tstart_step:tend_step+1))
  allocate(B_fl(tstart_step:tend_step+1))
  allocate(B_in(tstart_step:tend_step+1))
+ allocate(B_CF(tstart_step:tend_step+1))
  allocate(S_fl(tstart_step:tend_step+1))
  allocate(S_in(tstart_step:tend_step+1))
+ allocate(S_CF(tstart_step:tend_step+1))
 
  allocate(mom_tot(0:3,tstart_step:tend_step+1))
  allocate(B_tot(tstart_step:tend_step+1))
@@ -200,7 +204,7 @@ program read_sorted_lines
  S_tot   =   S_tot/nevt
  I3_tot  =  I3_tot/nevt
 
- open(unit=8,file="output/total_quantities_t1_t2.txt")
+ open(unit=8,file="output/"//trim(out_dir)//"/total_cons_quantities.txt")
    do it= tstart_step, tend_step + 1
     write(8,*)it*dt, mom_tot(0:3,it), B_tot(it), S_tot(it), I3_tot(it)
    end do
@@ -233,11 +237,19 @@ program read_sorted_lines
  call phyd_init()
  print *,"Reading EoS tables"
  call read_eos_tables()
+ print *,"Calculating coefficients and points for Gauss-Legendre integration."
+ call init_CF_int()
  print *,"Starting hydro-style calculations: cycle over hypersurface."
 
+ 
+ open(unit=8, file="output/"//trim(out_dir)//"/hyd/surfTX.txt")
+ open(unit=9, file="output/"//trim(out_dir)//"/hyd/surfTZ.txt")
+
  E_fl = 0.d0; B_fl = 0.d0; S_fl = 0.d0
+ E_CF = 0.d0; B_CF = 0.d0; S_CF = 0.d0
 
  do it = tstart_step, tend_step
+  write(*,'(A8,I5,A)',advance="no")"timestep: ",it,char(13);
   do ix=-nx,nx-1; do iy = -ny,ny-1; do iz = -nz,nz-1
 
 
@@ -245,9 +257,12 @@ program read_sorted_lines
    
    if (minval(e_HC) <= e0 .AND. maxval(e_HC) >= e0)    then 
 
-      call Cornelius(e0, e_HC, dSigma, Nsurf, Vmid, dt, dx, dy, dz, Nambi, Ndisc) ! Let Cornelius do all the work
+      call Cornelius(e0, e_HC, dSigma, Nsurf, Vmid, dt, dx, dy, dz, Nambi, Ndisc) ! find pieces of hypersurface
  
       do i=1,Nsurf
+
+       if (iz==0 .and. iy==0) then; write(8,*)it*dt+Vmid(0,i), ix*dx+Vmid(1,i); endif   
+       if (ix==0 .and. iy==0) then; write(9,*)it*dt+Vmid(0,i), iz*dz+Vmid(3,i); endif
         
        !Calculate flows through hypersurface
        do mu=0,3
@@ -259,7 +274,7 @@ program read_sorted_lines
        B_fl(it+1) = B_fl(it+1) + EuclidProduct(   jB_hlp(0:3), dSigma(0:3,i))
        S_fl(it+1) = S_fl(it+1) + EuclidProduct(   jS_hlp(0:3), dSigma(0:3,i))
 
-       !Calculate e, nb, T muB, muS in the cell
+       !Calculate e, nb, T muB, muS in the hypercell
        do a=0,1; do b=0,1; do c=0,1; do d=0,1
         nb_HC(a,b,c,d) = EuclidProduct (jB(0:3,it+a,ix+b,iy+c,iz+d), umu(0:3,it+a,ix+b,iy+c,iz+d))
         T_HC(a,b,c,d) = GetTemp(e_HC(a,b,c,d), nb_HC(a,b,c,d))
@@ -268,7 +283,7 @@ program read_sorted_lines
        end do; end do; end do; end do
 
        !Interpolate e, nb, T, muB, muS, vx, vy, vz, gamma to Vmid - to hypersurface
-       txyz_intpl(0:3) = Vmid(0:3,i) / (/dt,dx,dy,dz/)
+       txyz_intpl(0:3) = Vmid(0:3,i) / (/dt,dx,dy,dz/) !txyz_intpl - coordinates in hypercube, from 0 to 1
        e_intpl   =   Cube4Intpl(txyz_intpl, e_HC)
        nb_intpl  =   Cube4Intpl(txyz_intpl, nb_HC)
        T_intpl   =   Cube4Intpl(txyz_intpl, T_HC)*1.d-3  !MeV to GeV
@@ -282,6 +297,13 @@ program read_sorted_lines
        end do
        u_intpl(1:3) = v_intpl(1:3); u_intpl(0) = 1.d0
        u_intpl = u_intpl/sqrt(LorentzProduct(u_intpl,u_intpl))
+
+       !Calculate Cooper-Frye E, B, S assuming thermal equilibrium
+       umu_sigmu = LorentzProduct(u_intpl(0:3), dSigma(0:3,i))
+       E_CF(it+1) = E_CF(it+1) + E_hadgas(T_intpl, muB_intpl, muS_intpl)*u_intpl(0)*umu_sigmu+&
+                                 pressure_hadgas(T_intpl, muB_intpl, muS_intpl)*(u_intpl(0)*umu_sigmu - dSigma(0,i))
+       B_CF(it+1) = B_CF(it+1) + B_hadgas(T_intpl, muB_intpl, muS_intpl)*umu_sigmu
+       S_CF(it+1) = S_CF(it+1) + S_hadgas(T_intpl, muB_intpl, muS_intpl)*umu_sigmu
 
        !Fill histograms with values on surface
        do mu=0,3
@@ -298,6 +320,42 @@ program read_sorted_lines
        call HistAdd(hyd_surf_mub,  muB_intpl, 1.d0)
        call HistAdd(hyd_surf_mus,  muS_intpl, 1.d0)
 
+       !Fill spectra histos
+       do j=1,2 !Nphyd
+
+         !dN+/dy
+         do k = - hyd_spect_y(j)%Nbin, hyd_spect_y(j)%Nbin
+          bin_val = BinToValue(hyd_spect_y(j),k)
+          hyd_spect_y(j)%h(k) = hyd_spect_y(j)%h(k) + &
+           dNdy(bin_val, phyd(j)%m, T_intpl, muB_intpl * phyd(j)%B + muS_intpl * phyd(j)%S,&
+                u_intpl(0:3), dSigma(0:3,i), .TRUE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
+         end do
+
+         dN+/dy - d|N-|/dy
+         do k = - hyd_neg_y(j)%Nbin, hyd_neg_y(j)%Nbin
+          bin_val = BinToValue(hyd_neg_y(j),k)
+          hyd_neg_y(j)%h(k) = hyd_neg_y(j)%h(k) + &
+           dNdy(bin_val, phyd(j)%m, T_intpl, muB_intpl * phyd(j)%B + muS_intpl * phyd(j)%S,&
+                u_intpl(0:3), dSigma(0:3,i), .FALSE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
+         end do
+
+         dN+/pt dpt
+         do k = - hyd_spect_pt(j)%Nbin, hyd_spect_pt(j)%Nbin
+          bin_val = BinToValue(hyd_spect_pt(j),k)
+          hyd_spect_pt(j)%h(k) = hyd_spect_pt(j)%h(k) + &
+           dNptdpt(bin_val, phyd(j)%m, T_intpl, muB_intpl * phyd(j)%B + muS_intpl * phyd(j)%S,&
+                u_intpl(0:3), dSigma(0:3,i), .TRUE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
+         end do
+
+         dN+/pt dpt - d|N-|/pt dpt
+         do k = - hyd_neg_pt(j)%Nbin, hyd_neg_pt(j)%Nbin
+          bin_val = BinToValue(hyd_neg_pt(j),k)
+          hyd_neg_pt(j)%h(k) = hyd_neg_pt(j)%h(k) + &
+           dNptdpt(bin_val, phyd(j)%m, T_intpl, muB_intpl * phyd(j)%B + muS_intpl * phyd(j)%S,&
+                u_intpl(0:3), dSigma(0:3,i), .FALSE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
+         end do
+
+       end do
 
       end do
 
@@ -307,12 +365,19 @@ program read_sorted_lines
   end do; end do; end do
  end do
 
+ close(8)
+ close(9)
 
 !======================================================================================================
 !  Get particle crossings of hypersurface by explicit counting
 !======================================================================================================
+ print *
  print *,"BY PARTICLES"
  call pprt_init()
+
+ open(unit=8,  file="output/"//trim(out_dir)//"/prt/surfTX.txt")
+ open(unit=9,  file="output/"//trim(out_dir)//"/prt/surfTZ.txt")
+ open(unit=10, file="output/"//trim(out_dir)//"/prt/neg_cr.txt")
 
  E_in = 0.d0; B_in = 0.d0; S_in = 0.d0
 
@@ -327,33 +392,22 @@ program read_sorted_lines
    if (.not. op) then; exit; endif
    
    print *,"Reading file: ",input_fname
-   open(unit=8, form="unformatted", access="sequential", file = input_fname)
+   open(unit=11, form="unformatted", access="sequential", file = input_fname)
    do !event cycle
-     read(8, iostat = io)Npart_evt
+     read(11, iostat = io)Npart_evt
      if (io .ne. 0) then; exit; endif
      nevt = nevt + 1
      Npart_file = Npart_file + Npart_evt
 
      do i=1,Npart_evt
-       read(8)part
-       !Analyse here
-
+       read(11)part
+       
+       !Get E, B and S inside the hypersurface by particles for each time step
        do it = tstart_step, tend_step
         if (part%ri(0) > it*dt .or. part%rf(0) < it*dt) then; cycle; endif
         call GetTrajPoint(it*dt, r1, part%ri, part%rf)
-        ix = floor(r1(1)/dx)
-        iy = floor(r1(2)/dy)
-        iz = floor(r1(3)/dz)
-        r1(0) = 0.d0;
-        r1(1) = r1(1)/dx - ix*1d0
-        r1(2) = r1(2)/dy - iy*1d0
-        r1(3) = r1(3)/dz - iz*1d0
+        ar = GetEdens(r1)
 
-        if (ix < -nx .or. ix >= nx .or. iy < -ny .or. iy >= ny .or. iz < -nz .or. iz >= nz ) then
-         ar=0.d0
-        else
-         ar = Cube4Intpl(r1,EdensL(it:it+1,ix:ix+1, iy:iy+1, iz:iz+1))
-        endif
 
         if (ar .ge. e0) then
           E_in(it) = E_in(it) + part%p(0)
@@ -362,9 +416,36 @@ program read_sorted_lines
         endif
        end do 
 
+       !Get particle crossings of the hyper
+       dt_ptraj = 0.1d0*dt
+       t_ptraj = part%ri(0)
+
+       do while (t_ptraj<=part%rf(0))
+         
+         call GetTrajPoint(t_ptraj,                           r1, part%ri, part%rf)
+         call GetTrajPoint(min(t_ptraj+dt_ptraj, part%rf(0)), r2, part%ri, part%rf)
+         ar = GetEdens(r1)
+         br = GetEdens(r2)       
+         if (ar > 0.d0) then
+
+            if (ar > e0 .and. br < e0) then !Crossing from inside to outside
+             if (abs(r1(1)/dx) < 0.3d0 .and. abs(r1(2)/dy) < 0.3d0) then; write(9,*)r1(0),r1(3); endif
+             if (abs(r1(3)/dz) < 0.3d0 .and. abs(r1(2)/dy) < 0.3d0) then; write(8,*)r1(0),r1(1); endif
+             call prt_addto_spectr_hist(part, .FALSE.)
+            endif
+
+            if (ar < e0 .and. br > e0) then !Crossing from outside to inside
+             write(10,*)r1(0:3)
+             call prt_addto_spectr_hist(part, .TRUE.)
+
+            endif
+         endif
+         t_ptraj = t_ptraj + dt_ptraj
+       end do
+
      end do !particles in event cycle
    end do ! end event cycle
-   close(8)
+   close(11)
    print *,Npart_file, " lines read from file ", input_fname
    !print *,"ri(Npart), rf(Npart): ", part(395)%ri(0:3), part(395)%rf(0:3)
    fnum = fnum + 1  
@@ -376,15 +457,33 @@ program read_sorted_lines
  B_in = B_in/nevt
  S_in = S_in/nevt
 
+ do i=1, Npprt
+  prt_spect_y(i)%h  = prt_spect_y(i)%h/nevt
+  prt_spect_pt(i)%h = prt_spect_pt(i)%h/nevt
+  prt_neg_y(i)%h    = prt_neg_y(i)%h/nevt
+  prt_neg_pt(i)%h   = prt_neg_pt(i)%h/nevt
+ end do
+ 
+ close(8)
+ close(9)
+ close(10)
+
 !======================================================================================================
 !  Finalize and output
 !======================================================================================================
 
- open(unit=8, file = "output/EBS_cons.txt")
+ open(unit=8, file = "output/"//trim(out_dir)//"/EBS_cons.txt")
   do it = tstart_step, tend_step
    write(8,*)it*dt, E_fl(it+1), E_in(it) - E_in(it+1), B_fl(it+1), B_in(it) - B_in(it+1), S_fl(it+1), S_in(it) - S_in(it+1)
   end do
  close(8)
+
+ open(unit=8, file = "output/"//trim(out_dir)//"/CF_flows.txt")
+  do it = tstart_step, tend_step
+   write(8,*)it*dt, E_CF(it+1), B_CF(it+1), S_CF(it+1)
+  end do
+ close(8)
+
 
  call allhist_finalize_and_output(out_dir)
 
@@ -405,8 +504,10 @@ program read_sorted_lines
  deallocate(S_fl)
  deallocate(S_in)
 
-contains
+!======================================END=============================================================
 
+contains
+!======================================================================================================
 subroutine create_output_folder_structure(E,b,stamp, run_folder)
  implicit none
  double precision E,b
@@ -423,10 +524,18 @@ subroutine create_output_folder_structure(E,b,stamp, run_folder)
  call system('mkdir -p ./output/'//trim(run_folder)//"/hyd")
  call system('mkdir -p ./output/'//trim(run_folder)//"/prt")
  call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/spectra")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/spectra/y")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/spectra/pt")
  call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/neg_contr")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/neg_contr/y")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/neg_contr/pt")
  call system('mkdir -p ./output/'//trim(run_folder)//"/hyd/distr_on_hyper")
  call system('mkdir -p ./output/'//trim(run_folder)//"/prt/spectra")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/prt/spectra/y")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/prt/spectra/pt")
  call system('mkdir -p ./output/'//trim(run_folder)//"/prt/neg_contr")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/prt/neg_contr/y")
+ call system('mkdir -p ./output/'//trim(run_folder)//"/prt/neg_contr/pt")
  
 end subroutine
 
@@ -470,9 +579,59 @@ implicit none
 end subroutine
 
 !===========================================================================================================
+subroutine prt_addto_spectr_hist(par_to_add, add_to_neg)
+!Adds particle to the corresponding histograms
+!For instance if par_to_add is K- then it must be added to corresponding y and pt histograms
+!add_to_neg = .FALSE. (do not add to negative contribution histos) or .TRUE. (add to neg. contr.)
+implicit none
+  type(gen_part), intent(in) :: par_to_add
+  logical, intent(in) :: add_to_neg
+  integer num, i, j 
+  logical i3match
+  
+  num = -1
+
+  do i=1, Npprt
+    if (par_to_add%id .ne. pprt(i)%ityp) then; cycle; endif
+
+    i3match = .FALSE.
+    do j=1, pprt(i)%Ni3
+     if (pprt(i)%i3(j) == par_to_add%I3) then; i3match = .TRUE.; endif
+    end do
+    if (i3match) then; num = i; endif
+  end do
+
+  if (num > 0) then
+  !Add particle to histograms with index num
+   if (add_to_neg) then
+    call HistAdd(prt_neg_y(num),   GetY(par_to_add%p(0:3)), 1.d0)
+    call HistAdd(prt_neg_pt(num), GetPt(par_to_add%p(0:3)), 1.d0)
+   else
+    call HistAdd(prt_spect_y(num),   GetY(par_to_add%p(0:3)), 1.d0)
+    call HistAdd(prt_spect_pt(num), GetPt(par_to_add%p(0:3)), 1.d0)
+   endif
+  endif
+
+end subroutine
+
+!===============================================================================================
+double precision function GetY(p) result (y)
+implicit none
+double precision p(0:3)
+ y = 0.5d0*log((p(0)+p(3))/(p(0)-p(3)))
+end function GetY
+
+!===============================================================================================
+double precision function GetPt(p) result (pt)
+implicit none
+double precision p(0:3)
+ pt = sqrt(p(1)**2 + p(2)**2)
+end function GetPt
+
+!===========================================================================================================
 subroutine allhist_finalize_and_output(dname)
 implicit none
- !integer i
+ integer i,j
  character(len=*)dname
 
  !Histograms of values on the the surface
@@ -511,6 +670,38 @@ implicit none
  call HistPrint(hyd_surf_muB,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/muB.txt")
  call HistPrint(hyd_surf_muS,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/muS.txt")
 
+ !Histograms for spectra by particles
+ 
+ do i=1, Npprt
+  prt_neg_y(i)%h = prt_neg_y(i)%h / prt_spect_y(i)%h        !make (dN-/dy)/(dN+/dy) ratio
+  prt_neg_pt(i)%h = prt_neg_pt(i)%h / prt_spect_pt(i)%h     !make (dN-/dpt)/(dN+/dpt) ratio
+  prt_spect_y(i)%h = prt_spect_y(i)%h / HistBinSize(prt_spect_y(i))  !make dN+/dy from dN+/dy * delta y
+  prt_spect_pt(i)%h = prt_spect_pt(i)%h / HistBinSize(prt_spect_pt(i))  !make dN+/dpt from dN+/dpt * delta pt
+  !make dN+/(pt*dpt)
+  do j=-prt_spect_pt(i)%Nbin, prt_spect_pt(i)%Nbin
+   prt_spect_pt(i)%h(j) = prt_spect_pt(i)%h(j) / BinToValue(prt_spect_pt(i),j)
+  end do
+  
+  call HistPrint(prt_spect_y(i),"output/"//trim(adjustl(dname))//"/prt/spectra/y/"//trim(pprt(i)%pname)//".txt")
+  call HistPrint(prt_spect_pt(i),"output/"//trim(adjustl(dname))//"/prt/spectra/pt/"//trim(pprt(i)%pname)//".txt")
+  call HistPrint(prt_neg_y(i),"output/"//trim(adjustl(dname))//"/prt/neg_contr/y/"//trim(pprt(i)%pname)//".txt")
+  call HistPrint(prt_neg_pt(i),"output/"//trim(adjustl(dname))//"/prt/neg_contr/pt/"//trim(pprt(i)%pname)//".txt")
+ end do
+
+ ! Histograms for spectra bu Cooper-Frye
+
+ do i=1, Nphyd
+  !Was (neg: dN+/dy - dN-/dy,  spect: dN+/dy)
+  !Make (neg: (dN-/dy)/(dN+/dy), spect: dN+/dy)
+  hyd_neg_y(i)%h = (hyd_spect_y(i)%h - hyd_neg_y(i)%h)/ hyd_spect_y(i)%h
+  hyd_neg_pt(i)%h = (hyd_spect_pt(i)%h - hyd_neg_pt(i)%h)/ hyd_spect_pt(i)%h  
+
+  call HistPrint(hyd_spect_y(i),"output/"//trim(adjustl(dname))//"/hyd/spectra/y/"//trim(phyd(i)%pname)//".txt")
+  call HistPrint(hyd_spect_pt(i),"output/"//trim(adjustl(dname))//"/hyd/spectra/pt/"//trim(phyd(i)%pname)//".txt")
+  call HistPrint(hyd_neg_y(i),"output/"//trim(adjustl(dname))//"/hyd/neg_contr/y/"//trim(phyd(i)%pname)//".txt")
+  call HistPrint(hyd_neg_pt(i),"output/"//trim(adjustl(dname))//"/hyd/neg_contr/pt/"//trim(phyd(i)%pname)//".txt") 
+
+ end do
 
 
 end subroutine
@@ -530,9 +721,10 @@ implicit none
   phyd(5)%pname = "Kmi"; phyd(5)%m = 0.495d0; phyd(5)%g =  1; phyd(5)%B = 0; phyd(5)%S = -1
   phyd(6)%pname = "Kpl"; phyd(6)%m = 0.495d0; phyd(6)%g =  1; phyd(6)%B = 0; phyd(6)%S =  1
 
-  print *,"====================================================="
-  print *,"Initializing particles for hydro-style calculations: "
-  print *,"====================================================="
+  print *,"=============================================================="
+  print *,"Initializing particles for hydro-style calculations:          "
+  print *,"  For them Cooper-Frye y and pt spectra will be calculated.   "
+  print *,"=============================================================="
 
   write(*,'(A4,2X,A5,2X,3A3)')"name"," mass","  g", "  B", "  S"
   do i=1, Nphyd
@@ -554,9 +746,10 @@ implicit none
   pprt(5)%pname = "Kmi"; pprt(5)%ityp =-106; pprt(5)%Ni3 = 1; pprt(5)%i3(1:1) = (/-1/)
   pprt(6)%pname = "Kpl"; pprt(6)%ityp = 106; pprt(6)%Ni3 = 1; pprt(6)%i3(1:1) = (/1/)
 
-  print *,"====================================================="
-  print *,"Initializing particles for by-particles calculations:"
-  print *,"====================================================="
+  print *,"====================================================================="
+  print *,"Initializing particles for by-particles calculations:                "
+  print *,"  For them y and pt spectra at crossing hypersurface will be counted."
+  print *,"====================================================================="
 
   write(*,'(A4,2X,A5,2X,A)')"name"," ityp"," 2*i3 list"
   do i=1, Npprt
@@ -627,4 +820,35 @@ implicit none
  
 end function Cube4Intpl
 
-end program read_sorted_lines
+!===============================================================================================
+double precision function GetEdens(r0) result (res)
+!Interpolates energy density to space-time point r0
+!Uses global array EdensL - energy density on a grid
+implicit none
+double precision r0(0:3), v0(0:3)
+integer it_r0, ix_r0, iy_r0, iz_r0
+
+   it_r0=floor(r0(0)/dt)
+   ix_r0=floor(r0(1)/dx)
+   iy_r0=floor(r0(2)/dy)
+   iz_r0=floor(r0(3)/dz)
+
+
+   if (ix_r0 < -nx .or. ix_r0 >= nx .or. &
+       iy_r0 < -ny .or. iy_r0 >= ny .or. &
+       iz_r0 < -nz .or. iz_r0 >= nz .or. & 
+       it_r0 >= tend_step .or. it_r0 < tstart_step) then
+     res = -1.d0
+     return
+   endif
+
+    v0(0)=r0(0)/dt-it_r0*1.d0
+    v0(1)=r0(1)/dx-ix_r0*1.d0
+    v0(2)=r0(2)/dy-iy_r0*1.d0
+    v0(3)=r0(3)/dz-iz_r0*1.d0
+
+    res = Cube4Intpl(v0, EdensL(it_r0:it_r0+1, ix_r0:ix_r0+1, iy_r0:iy_r0+1, iz_r0:iz_r0+1))
+
+end function GetEdens
+
+end program analyze_part_lines
