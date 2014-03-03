@@ -52,16 +52,16 @@ program analyze_part_lines
  type (histo), dimension(max_plot_part) :: prt_spect_y, prt_spect_pt, prt_neg_y, prt_neg_pt
 
  !files and strings
- double precision, parameter :: E_collision = 10.d0
+ double precision, parameter :: E_collision = 40.d0
  double precision, parameter :: b_collision = 0.d0
  character(LEN=*), parameter :: input_prename = "/tmp/Tmn_proj_data/TrajLines/"
- character(LEN=*), parameter :: dir_stamp = "testing" !stamp for output directory: testing, prod or "" are suggested
+ character(LEN=*), parameter :: dir_stamp = "prod_e0_0.3" !stamp for output directory: testing, prod or "" are suggested
  character(LEN=100) :: out_dir
  character(LEN=100) :: input_fname, t_option
  logical op
 
  !For hypersurface finding via Cornelius
- double precision, parameter :: e0 = 0.15d0 !GeV
+ double precision, parameter :: e0 = 0.3d0 !GeV
  double precision,dimension(0:1,0:1,0:1,0:1) :: e_HC, nb_HC, T_HC, mub_HC, mus_HC
  double precision,dimension(0:3,8) :: dSigma
  integer        :: Nsurf
@@ -131,6 +131,8 @@ program analyze_part_lines
 
  call create_output_folder_structure(E_collision, b_collision, dir_stamp, out_dir)
  print *,"Output directory is: ", trim(out_dir)
+
+ print *,"Hyper-surface criterion E0(GeV/fm^3) is: ", e0
 
  call allhist_init()
 
@@ -321,7 +323,7 @@ program analyze_part_lines
        call HistAdd(hyd_surf_mus,  muS_intpl, 1.d0)
 
        !Fill spectra histos
-       do j=1,2 !Nphyd
+       do j=1,Nphyd
 
          !dN+/dy
          do k = - hyd_spect_y(j)%Nbin, hyd_spect_y(j)%Nbin
@@ -331,7 +333,7 @@ program analyze_part_lines
                 u_intpl(0:3), dSigma(0:3,i), .TRUE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
          end do
 
-         dN+/dy - d|N-|/dy
+         !dN+/dy - d|N-|/dy
          do k = - hyd_neg_y(j)%Nbin, hyd_neg_y(j)%Nbin
           bin_val = BinToValue(hyd_neg_y(j),k)
           hyd_neg_y(j)%h(k) = hyd_neg_y(j)%h(k) + &
@@ -339,7 +341,7 @@ program analyze_part_lines
                 u_intpl(0:3), dSigma(0:3,i), .FALSE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
          end do
 
-         dN+/pt dpt
+         !dN+/pt dpt
          do k = - hyd_spect_pt(j)%Nbin, hyd_spect_pt(j)%Nbin
           bin_val = BinToValue(hyd_spect_pt(j),k)
           hyd_spect_pt(j)%h(k) = hyd_spect_pt(j)%h(k) + &
@@ -347,7 +349,7 @@ program analyze_part_lines
                 u_intpl(0:3), dSigma(0:3,i), .TRUE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
          end do
 
-         dN+/pt dpt - d|N-|/pt dpt
+         !dN+/pt dpt - d|N-|/pt dpt
          do k = - hyd_neg_pt(j)%Nbin, hyd_neg_pt(j)%Nbin
           bin_val = BinToValue(hyd_neg_pt(j),k)
           hyd_neg_pt(j)%h(k) = hyd_neg_pt(j)%h(k) + &
