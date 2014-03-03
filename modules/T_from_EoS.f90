@@ -56,6 +56,7 @@ contains
       write(*,'(A,f10.4,A)')"Energy density from my hadgas:",E_hadgas(T*1d-3, mu*1d-3, mus*1d-3), " GeV/fm^3"
       write(*,'(A,f10.4,A)')"Baryon density from my hadgas:",B_hadgas(T*1d-3, mu*1d-3,mus*1d-3), " fm^-3"
       write(*,'(A,f10.4,A)')"Net strangeness from my hadgas:",S_hadgas(T*1d-3, mu*1d-3, mus*1d-3), " fm^-3"
+      write(*,'(A,f10.4,A)')"Pressure from my hadgas:",pressure_hadgas(T*1d-3, mu*1d-3, mus*1d-3), " GeV/fm^3"
             
       end subroutine
 
@@ -484,9 +485,9 @@ implicit none
  ! T - temperature [GeV]
  ! u - 4-velocity with lower index
  ! dSigma - normal 4-vector with lower index [fm^3]
- ! mu - baryon chemical potential
- ! mus - strange chemical potential
- ! Calculates S flow from all particles in a table using Cooper-Frye formula
+ ! mu - baryon chemical potential [GeV]
+ ! mus - strange chemical potential [GeV]
+ ! Calculates pressure from all particles in a table using Cooper-Frye formula
  double precision, intent(in) :: T, mu, mus
  double precision bose_fermi_boltz
  integer i
@@ -509,9 +510,8 @@ implicit none
   endif
   
   res = res + N_part(mass(i), T, mu*bar(i) + mus*str(i), bose_fermi_boltz, g(i))
-  res = res*T
  end do
-
+  res = res*T
 
 end function pressure_hadgas
 

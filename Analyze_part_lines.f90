@@ -33,6 +33,10 @@ program analyze_part_lines
  type (part_prt), dimension(max_plot_part) :: pprt
  integer Npprt
 
+ !Options
+ logical, parameter :: calculate_hyd_spectra = .FALSE.
+ logical, parameter :: calculate_prt_spectra = .FALSE.
+
  !Grid dimensions
  integer, parameter :: nx = 10
  integer, parameter :: ny = 10
@@ -50,18 +54,19 @@ program analyze_part_lines
  type (histo) hyd_surf_T, hyd_surf_mub, hyd_surf_mus, hyd_surf_v(1:3), hyd_surf_gam
  type (histo), dimension(max_plot_part) :: hyd_spect_y, hyd_spect_pt, hyd_neg_y, hyd_neg_pt
  type (histo), dimension(max_plot_part) :: prt_spect_y, prt_spect_pt, prt_neg_y, prt_neg_pt
+ type (histo) pres_CF, pres_x, pres_y, pres_z 
 
  !files and strings
- double precision, parameter :: E_collision = 40.d0
+ double precision, parameter :: E_collision = 10.d0
  double precision, parameter :: b_collision = 0.d0
  character(LEN=*), parameter :: input_prename = "/tmp/Tmn_proj_data/TrajLines/"
- character(LEN=*), parameter :: dir_stamp = "prod_e0_0.3" !stamp for output directory: testing, prod or "" are suggested
+ character(LEN=*), parameter :: dir_stamp = "testing" !stamp for output directory: testing, prod or "" are suggested
  character(LEN=100) :: out_dir
  character(LEN=100) :: input_fname, t_option
  logical op
 
  !For hypersurface finding via Cornelius
- double precision, parameter :: e0 = 0.3d0 !GeV
+ double precision, parameter :: e0 = 0.15d0 !GeV
  double precision,dimension(0:1,0:1,0:1,0:1) :: e_HC, nb_HC, T_HC, mub_HC, mus_HC
  double precision,dimension(0:3,8) :: dSigma
  integer        :: Nsurf
@@ -70,6 +75,7 @@ program analyze_part_lines
 
  !Interpolated values on the surface
  double precision txyz_intpl(0:3), e_intpl, T_intpl, nb_intpl, muB_intpl, muS_intpl, v_intpl(1:3), u_intpl(0:3)
+ double precision presx_intpl, presy_intpl, presz_intpl
  
  !Particles and events
  type (gen_part) :: part
@@ -77,7 +83,7 @@ program analyze_part_lines
 
  !Arrays on grid
  double precision, dimension(:,:,:,:,:), allocatable :: Tmn, jB, jS, umu
- double precision, dimension(:,:,:,:), allocatable :: EdensL
+ double precision, dimension(:,:,:,:), allocatable :: EdensL, TL11, TL22, TL33
  double precision, dimension(:,:), allocatable :: mom_tot
  double precision, dimension(:), allocatable :: B_tot, S_tot, I3_tot
  double precision, dimension(:), allocatable :: E_fl, B_fl, S_fl, E_in, B_in, S_in, E_CF, B_CF, S_CF
@@ -105,6 +111,9 @@ program analyze_part_lines
  allocate(jS(0:3, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(umu(0:3, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(EdensL(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(TL11(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(TL22(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(TL33(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(E_fl(tstart_step:tend_step+1))
  allocate(E_in(tstart_step:tend_step+1))
  allocate(E_CF(tstart_step:tend_step+1))
@@ -228,6 +237,9 @@ program analyze_part_lines
 
     call FindLandau(Tmn_hlp,TmnL_hlp, umu(0:3,it,ix,iy,iz))
     EdensL(it,ix,iy,iz) = TmnL_hlp(0,0)
+    TL11(it,ix,iy,iz) = Tmn_hlp(1,1)
+    TL22(it,ix,iy,iz) = Tmn_hlp(2,2)
+    TL33(it,ix,iy,iz) = Tmn_hlp(3,3)
   end do; end do; end do
  end do
 
@@ -287,10 +299,14 @@ program analyze_part_lines
        !Interpolate e, nb, T, muB, muS, vx, vy, vz, gamma to Vmid - to hypersurface
        txyz_intpl(0:3) = Vmid(0:3,i) / (/dt,dx,dy,dz/) !txyz_intpl - coordinates in hypercube, from 0 to 1
        e_intpl   =   Cube4Intpl(txyz_intpl, e_HC)
+       
        nb_intpl  =   Cube4Intpl(txyz_intpl, nb_HC)
        T_intpl   =   Cube4Intpl(txyz_intpl, T_HC)*1.d-3  !MeV to GeV
        muB_intpl =   Cube4Intpl(txyz_intpl, mub_HC)*1.d-3 !MeV to GeV
        muS_intpl =   Cube4Intpl(txyz_intpl, mus_HC)*1.d-3 !MeV to GeV
+       presx_intpl  =   Cube4Intpl(txyz_intpl, TL11(it:it+1, ix:ix+1, iy:iy+1, iz:iz+1))
+       presy_intpl  =   Cube4Intpl(txyz_intpl, TL22(it:it+1, ix:ix+1, iy:iy+1, iz:iz+1))
+       presz_intpl  =   Cube4Intpl(txyz_intpl, TL33(it:it+1, ix:ix+1, iy:iy+1, iz:iz+1))
        do mu = 1,3
         v_intpl(mu)  =  Cube4Intpl(txyz_intpl, umu(mu,it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)/umu(0,it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)) 
         if (abs(v_intpl(mu))> 1.d0) then
@@ -321,8 +337,13 @@ program analyze_part_lines
        call HistAdd(hyd_surf_T,      T_intpl, 1.d0)
        call HistAdd(hyd_surf_mub,  muB_intpl, 1.d0)
        call HistAdd(hyd_surf_mus,  muS_intpl, 1.d0)
+       call HistAdd(pres_CF, pressure_hadgas(T_intpl, muB_intpl, muS_intpl), 1.d0)
+       call HistAdd(pres_x, presx_intpl, 1.d0)
+       call HistAdd(pres_y, presy_intpl, 1.d0)
+       call HistAdd(pres_z, presz_intpl, 1.d0)
 
        !Fill spectra histos
+       if (calculate_hyd_spectra) then
        do j=1,Nphyd
 
          !dN+/dy
@@ -356,8 +377,10 @@ program analyze_part_lines
            dNptdpt(bin_val, phyd(j)%m, T_intpl, muB_intpl * phyd(j)%B + muS_intpl * phyd(j)%S,&
                 u_intpl(0:3), dSigma(0:3,i), .FALSE., 2.d0*abs(phyd(j)%B) - 1.d0 , phyd(j)%g*1.d0) 
          end do
+         
 
        end do
+       endif
 
       end do
 
@@ -419,6 +442,7 @@ program analyze_part_lines
        end do 
 
        !Get particle crossings of the hyper
+       if (calculate_prt_spectra) then
        dt_ptraj = 0.1d0*dt
        t_ptraj = part%ri(0)
 
@@ -444,6 +468,7 @@ program analyze_part_lines
          endif
          t_ptraj = t_ptraj + dt_ptraj
        end do
+       endif
 
      end do !particles in event cycle
    end do ! end event cycle
@@ -495,6 +520,9 @@ program analyze_part_lines
  deallocate(jS)
  deallocate(umu)
  deallocate(EdensL)
+ deallocate(TL11)
+ deallocate(TL22)
+ deallocate(TL33)
  deallocate(mom_tot)
  deallocate(B_tot)
  deallocate(S_tot)
@@ -578,6 +606,11 @@ implicit none
  call HistNew(hyd_surf_mub, 50 , 0.d0, 0.8d0)
  call HistNew(hyd_surf_mus, 50 , 0.d0, 0.2d0)
 
+ call HistNew(pres_CF, 50 , 0.d0, 0.4d0)
+ call HistNew(pres_x , 50 , 0.d0, 0.4d0)
+ call HistNew(pres_y , 50 , 0.d0, 0.4d0)
+ call HistNew(pres_z , 50 , 0.d0, 0.4d0)
+
 end subroutine
 
 !===========================================================================================================
@@ -640,7 +673,7 @@ implicit none
  !NO: 1) From delta N(delta y) histograms make dN/dy, where N - number of hypersurface pieces
  ! 2) Write histograms to files
 
- print *,"Writing histgrams of values on the hyper surface to directory: output/",trim(dname)
+ print *,"Writing histograms of values on the hyper surface to directory: output/",trim(dname)
  !do i=0,3;  hyd_surf_sig(i)%h = hyd_surf_sig(i)%h/HistBinSize(hyd_surf_sig(i)); end do
  !do i=0,3;  hyd_surf_Vmid(i)%h = hyd_surf_Vmid(i)%h/HistBinSize(hyd_surf_Vmid(i)); end do
  !do i=1,3;  hyd_surf_v(i)%h = hyd_surf_v(i)%h/HistBinSize(hyd_surf_v(i)); end do
@@ -672,7 +705,14 @@ implicit none
  call HistPrint(hyd_surf_muB,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/muB.txt")
  call HistPrint(hyd_surf_muS,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/muS.txt")
 
+ call HistPrint(pres_CF,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/p_CF.txt")
+ call HistPrint(pres_x ,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/p_x.txt")
+ call HistPrint(pres_y ,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/p_y.txt")
+ call HistPrint(pres_z ,"output/"//trim(adjustl(dname))//"/hyd/distr_on_hyper/p_z.txt")
+
  !Histograms for spectra by particles
+
+ if (calculate_prt_spectra) then
  
  do i=1, Npprt
   prt_neg_y(i)%h = prt_neg_y(i)%h / prt_spect_y(i)%h        !make (dN-/dy)/(dN+/dy) ratio
@@ -690,8 +730,13 @@ implicit none
   call HistPrint(prt_neg_pt(i),"output/"//trim(adjustl(dname))//"/prt/neg_contr/pt/"//trim(pprt(i)%pname)//".txt")
  end do
 
+ endif
+
+
  ! Histograms for spectra bu Cooper-Frye
 
+
+ if (calculate_prt_spectra) then
  do i=1, Nphyd
   !Was (neg: dN+/dy - dN-/dy,  spect: dN+/dy)
   !Make (neg: (dN-/dy)/(dN+/dy), spect: dN+/dy)
@@ -704,6 +749,7 @@ implicit none
   call HistPrint(hyd_neg_pt(i),"output/"//trim(adjustl(dname))//"/hyd/neg_contr/pt/"//trim(phyd(i)%pname)//".txt") 
 
  end do
+ endif
 
 
 end subroutine
