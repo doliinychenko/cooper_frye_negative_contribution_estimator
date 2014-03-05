@@ -1,5 +1,5 @@
 # Veusz saved document (version 1.18)
-# Saved at 2014-03-03T10:42:01.630690
+# Saved at 2014-03-04T16:13:33.937876
 
 AddImportPath(u'/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/plot/E10b0')
 ImportFile(u'../../output/E10.0_b0.0testing/CF_flows.txt', u't_CFflows,E_CF,B_CF,S_CF', linked=True, ignoretext=True)
@@ -727,8 +727,8 @@ To('..')
 Add('label', name=u'be', autoadd=False)
 To(u'be')
 Set('label', u'E = 10 AGeV, b=0 fm')
-Set('xPos', [0.04583629301215867])
-Set('yPos', [0.8015040948344541])
+Set('xPos', [0.5355275074412719])
+Set('yPos', [0.0325674771358466])
 Set('Text/size', u'18pt')
 To('..')
 To('..')

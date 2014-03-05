@@ -34,13 +34,14 @@ program analyze_part_lines
  integer Npprt
 
  !Options
- logical, parameter :: calculate_hyd_spectra = .FALSE.
- logical, parameter :: calculate_prt_spectra = .FALSE.
+ logical, parameter :: calculate_hyd_spectra = .TRUE.
+ logical, parameter :: calculate_prt_spectra = .TRUE.
+ logical, parameter :: edens_smoothing = .TRUE.
 
  !Grid dimensions
  integer, parameter :: nx = 10
  integer, parameter :: ny = 10
- integer, parameter :: nz = 80
+ integer, parameter :: nz = 100
  integer tstart_step, tend_step
 
  !Cell spacings
@@ -57,17 +58,17 @@ program analyze_part_lines
  type (histo) pres_CF, pres_x, pres_y, pres_z 
 
  !files and strings
- double precision, parameter :: E_collision = 10.d0
+ double precision, parameter :: E_collision = 160.d0
  double precision, parameter :: b_collision = 0.d0
  character(LEN=*), parameter :: input_prename = "/tmp/Tmn_proj_data/TrajLines/"
- character(LEN=*), parameter :: dir_stamp = "testing" !stamp for output directory: testing, prod or "" are suggested
+ character(LEN=*), parameter :: dir_stamp = "prod_e0_0.3_smoothed" !stamp for output directory: testing, prod or "" are suggested
  character(LEN=100) :: out_dir
  character(LEN=100) :: input_fname, t_option
  logical op
 
  !For hypersurface finding via Cornelius
- double precision, parameter :: e0 = 0.15d0 !GeV
- double precision,dimension(0:1,0:1,0:1,0:1) :: e_HC, nb_HC, T_HC, mub_HC, mus_HC
+ double precision, parameter :: e0 = 0.3d0 !GeV
+ double precision,dimension(0:1,0:1,0:1,0:1) :: e_HC, nb_HC, T_HC, mub_HC, mus_HC, e_HC_surf
  double precision,dimension(0:3,8) :: dSigma
  integer        :: Nsurf
  double precision,dimension(0:3,8) :: Vmid
@@ -83,7 +84,7 @@ program analyze_part_lines
 
  !Arrays on grid
  double precision, dimension(:,:,:,:,:), allocatable :: Tmn, jB, jS, umu
- double precision, dimension(:,:,:,:), allocatable :: EdensL, TL11, TL22, TL33
+ double precision, dimension(:,:,:,:), allocatable :: EdensL, TL11, TL22, TL33, edensL_smoothed
  double precision, dimension(:,:), allocatable :: mom_tot
  double precision, dimension(:), allocatable :: B_tot, S_tot, I3_tot
  double precision, dimension(:), allocatable :: E_fl, B_fl, S_fl, E_in, B_in, S_in, E_CF, B_CF, S_CF
@@ -111,6 +112,7 @@ program analyze_part_lines
  allocate(jS(0:3, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(umu(0:3, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(EdensL(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(EdensL_smoothed(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(TL11(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(TL22(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(TL33(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
@@ -243,6 +245,18 @@ program analyze_part_lines
   end do; end do; end do
  end do
 
+ EdensL_smoothed = EdensL
+
+ if (edens_smoothing) then
+  print *,"Smoothing energy edensity."
+  
+  do i=1,2
+   do it=tstart_step,tend_step+1; do ix=-nx+1,nx-1; do iy=-ny+1,ny-1; do iz=-nz+1,nz-1
+     EdensL_smoothed(it,ix,iy,iz) = sum(EdensL_smoothed(it,ix-1:ix+1,iy-1:iy+1,iz-1:iz+1))/27d0
+   end do; end do; end do; end do
+  end do
+ endif
+
 
 !======================================================================================================
 !  Get hypersurface using Cornelius
@@ -267,11 +281,11 @@ program analyze_part_lines
   do ix=-nx,nx-1; do iy = -ny,ny-1; do iz = -nz,nz-1
 
 
-   e_HC=EdensL(it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)
+   e_HC_surf=EdensL_smoothed(it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)
    
-   if (minval(e_HC) <= e0 .AND. maxval(e_HC) >= e0)    then 
+   if (minval(e_HC_surf) <= e0 .AND. maxval(e_HC_surf) >= e0)    then 
 
-      call Cornelius(e0, e_HC, dSigma, Nsurf, Vmid, dt, dx, dy, dz, Nambi, Ndisc) ! find pieces of hypersurface
+      call Cornelius(e0, e_HC_surf, dSigma, Nsurf, Vmid, dt, dx, dy, dz, Nambi, Ndisc) ! find pieces of hypersurface
  
       do i=1,Nsurf
 
@@ -288,6 +302,7 @@ program analyze_part_lines
        B_fl(it+1) = B_fl(it+1) + EuclidProduct(   jB_hlp(0:3), dSigma(0:3,i))
        S_fl(it+1) = S_fl(it+1) + EuclidProduct(   jS_hlp(0:3), dSigma(0:3,i))
 
+       e_HC = EdensL(it:it+1,ix:ix+1,iy:iy+1,iz:iz+1)
        !Calculate e, nb, T muB, muS in the hypercell
        do a=0,1; do b=0,1; do c=0,1; do d=0,1
         nb_HC(a,b,c,d) = EuclidProduct (jB(0:3,it+a,ix+b,iy+c,iz+d), umu(0:3,it+a,ix+b,iy+c,iz+d))
@@ -895,7 +910,7 @@ integer it_r0, ix_r0, iy_r0, iz_r0
     v0(2)=r0(2)/dy-iy_r0*1.d0
     v0(3)=r0(3)/dz-iz_r0*1.d0
 
-    res = Cube4Intpl(v0, EdensL(it_r0:it_r0+1, ix_r0:ix_r0+1, iy_r0:iy_r0+1, iz_r0:iz_r0+1))
+    res = Cube4Intpl(v0, EdensL_smoothed(it_r0:it_r0+1, ix_r0:ix_r0+1, iy_r0:iy_r0+1, iz_r0:iz_r0+1))
 
 end function GetEdens
 

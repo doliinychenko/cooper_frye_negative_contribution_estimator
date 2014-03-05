@@ -1,5 +1,5 @@
 # Veusz saved document (version 1.18)
-# Saved at 2014-03-03T14:49:28.201272
+# Saved at 2014-03-04T16:13:38.670680
 
 AddImportPath(u'/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/plot/E160b0')
 ImportFile(u'../../output/E160.0_b0.0prod/CF_flows.txt', u't_CFflows,E_CF,B_CF,S_CF', linked=True, ignoretext=True)
@@ -2003,7 +2003,7 @@ Set('Border/width', u'1.5pt')
 Add('axis', name='x', autoadd=False)
 To('x')
 Set('label', u't, fm/c')
-Set('max', 25.0)
+Set('max', 26.0)
 Set('Line/width', u'1.5pt')
 Set('Label/size', u'28pt')
 Set('TickLabels/size', u'22pt')
@@ -2166,7 +2166,6 @@ Set('Border/width', u'1.5pt')
 Add('axis', name='x', autoadd=False)
 To('x')
 Set('label', u't, fm/c')
-Set('max', 25.0)
 Set('Line/width', u'1.5pt')
 Set('Label/size', u'28pt')
 Set('TickLabels/size', u'22pt')

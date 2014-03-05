@@ -1,5 +1,5 @@
 # Veusz saved document (version 1.18)
-# Saved at 2014-03-03T10:42:01.630690
+# Saved at 2014-03-04T16:13:45.872762
 
 AddImportPath(u'/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/plot/E40b0')
 ImportFile(u'../../output/E40.0_b0.0prod/CF_flows.txt', u't_CFflows,E_CF,B_CF,S_CF', linked=True, ignoretext=True)
