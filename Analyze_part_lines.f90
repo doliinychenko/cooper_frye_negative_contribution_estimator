@@ -34,14 +34,14 @@ program analyze_part_lines
  integer Npprt
 
  !Options
- logical, parameter :: calculate_hyd_spectra = .TRUE.
+ logical, parameter :: calculate_hyd_spectra = .FALSE.
  logical, parameter :: calculate_prt_spectra = .TRUE.
  logical, parameter :: edens_smoothing = .TRUE.
 
  !Grid dimensions
  integer, parameter :: nx = 10
  integer, parameter :: ny = 10
- integer, parameter :: nz = 100
+ integer, parameter :: nz = 80
  integer tstart_step, tend_step
 
  !Cell spacings
@@ -58,7 +58,7 @@ program analyze_part_lines
  type (histo) pres_CF, pres_x, pres_y, pres_z 
 
  !files and strings
- double precision, parameter :: E_collision = 160.d0
+ double precision, parameter :: E_collision = 40.d0
  double precision, parameter :: b_collision = 0.d0
  character(LEN=*), parameter :: input_prename = "/tmp/Tmn_proj_data/TrajLines/"
  character(LEN=*), parameter :: dir_stamp = "prod_e0_0.3_smoothed" !stamp for output directory: testing, prod or "" are suggested
@@ -88,6 +88,7 @@ program analyze_part_lines
  double precision, dimension(:,:), allocatable :: mom_tot
  double precision, dimension(:), allocatable :: B_tot, S_tot, I3_tot
  double precision, dimension(:), allocatable :: E_fl, B_fl, S_fl, E_in, B_in, S_in, E_CF, B_CF, S_CF
+ double precision, dimension(:), allocatable :: Ncross_in, Ncross_out
 
  
  integer fnum, mu, nu, io, a,b,c,d
@@ -125,6 +126,8 @@ program analyze_part_lines
  allocate(S_fl(tstart_step:tend_step+1))
  allocate(S_in(tstart_step:tend_step+1))
  allocate(S_CF(tstart_step:tend_step+1))
+ allocate(Ncross_in(tstart_step:tend_step+1))
+ allocate(Ncross_out(tstart_step:tend_step+1))
 
  allocate(mom_tot(0:3,tstart_step:tend_step+1))
  allocate(B_tot(tstart_step:tend_step+1))
@@ -420,6 +423,7 @@ program analyze_part_lines
  open(unit=10, file="output/"//trim(out_dir)//"/prt/neg_cr.txt")
 
  E_in = 0.d0; B_in = 0.d0; S_in = 0.d0
+ Ncross_in = 0.d0; Ncross_out = 0.d0
 
  fnum = 0
  nevt = 0
@@ -470,12 +474,14 @@ program analyze_part_lines
          if (ar > 0.d0) then
 
             if (ar > e0 .and. br < e0) then !Crossing from inside to outside
+             Ncross_out(ceiling(r1(0)/dt)) = Ncross_out(ceiling(r1(0)/dt)) + 1.d0
              if (abs(r1(1)/dx) < 0.3d0 .and. abs(r1(2)/dy) < 0.3d0) then; write(9,*)r1(0),r1(3); endif
              if (abs(r1(3)/dz) < 0.3d0 .and. abs(r1(2)/dy) < 0.3d0) then; write(8,*)r1(0),r1(1); endif
              call prt_addto_spectr_hist(part, .FALSE.)
             endif
 
             if (ar < e0 .and. br > e0) then !Crossing from outside to inside
+             Ncross_in(ceiling(r1(0)/dt)) = Ncross_in(ceiling(r1(0)/dt)) + 1.d0
              write(10,*)r1(0:3)
              call prt_addto_spectr_hist(part, .TRUE.)
 
@@ -498,6 +504,9 @@ program analyze_part_lines
  E_in = E_in/nevt
  B_in = B_in/nevt
  S_in = S_in/nevt
+
+ Ncross_in = Ncross_in/nevt
+ Ncross_out = Ncross_out/nevt
 
  do i=1, Npprt
   prt_spect_y(i)%h  = prt_spect_y(i)%h/nevt
@@ -525,6 +534,13 @@ program analyze_part_lines
    write(8,*)it*dt, E_CF(it+1), B_CF(it+1), S_CF(it+1)
   end do
  close(8)
+
+ open(unit=8, file = "output/"//trim(out_dir)//"/prt/cross_count.txt")
+  do it = tstart_step, tend_step
+   write(8,*)it*dt, Ncross_in(it+1), Ncross_out(it+1)
+  end do
+ close(8)
+
 
 
  call allhist_finalize_and_output(out_dir)
@@ -686,7 +702,8 @@ implicit none
 
  !Histograms of values on the the surface
  !NO: 1) From delta N(delta y) histograms make dN/dy, where N - number of hypersurface pieces
- ! 2) Write histograms to files
+ ! 2) Normalize spectra histograms
+ ! 3) Write histograms to files
 
  print *,"Writing histograms of values on the hyper surface to directory: output/",trim(dname)
  !do i=0,3;  hyd_surf_sig(i)%h = hyd_surf_sig(i)%h/HistBinSize(hyd_surf_sig(i)); end do

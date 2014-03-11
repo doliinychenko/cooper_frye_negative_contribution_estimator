@@ -7,7 +7,7 @@ use Land_Eck, only: FindLandau
 implicit none
 
  !files and strings
- double precision, parameter :: E_collision = 40.d0
+ double precision, parameter :: E_collision = 160.d0
  double precision, parameter :: b_collision = 0.d0
  character(LEN=*), parameter :: input_prename = "/tmp/Tmn_proj_data/TrajLines/"
 
@@ -122,12 +122,18 @@ implicit none
   end do; end do; end do
  end do
 
+!  do i=1,2
+!   do it=tstart_step,tend_step+1; do ix=-nx+1,nx-1; do iy=-ny+1,ny-1; do iz=-nz+1,nz-1
+!     EdensL(it,ix,iy,iz) = sum(EdensL(it,ix-1:ix+1,iy-1:iy+1,iz-1:iz+1))/27d0
+!   end do; end do; end do; end do
+!  end do
+
 
 !--------------------WRITE VTK FILE---------------------------------------------------------------
 print *,"Writing vtk."
 do it=tstart_step, tend_step + 1
  write(s_hlp,*)it; 
- open(unit=8, file="output/E40.0_b0.0prod/vtk/edens.vtk."//trim(adjustl(s_hlp)) )
+ open(unit=8, file="output/E160.0_b0.0prod_e0_0.3/prt/vtk/edens.vtk."//trim(adjustl(s_hlp)) )
   write(8,'(A)')"# vtk DataFile Version 2.0"
   write(8,'(A)')"energy density"
   write(8,'(A)')"ASCII"

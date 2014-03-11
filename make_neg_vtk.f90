@@ -1,8 +1,8 @@
 program vtk_neg
 ! Reads points t,x,y,z
 !makes vtk file for each [t] with unstructured point x,y,z
-real, dimension(1000000) :: t,x,y,z
-integer it(1000000), ni(100)
+real, dimension(5000000) :: t,x,y,z
+integer it(5000000), ni(200)
 integer i,j, nlines,io
 integer tstart_step, tend_step
 real dt, dx, dy, dz
@@ -14,11 +14,11 @@ dt = 0.3d0
 dz = 0.3d0
 dx = 1.d0
 dy = 1.d0
-tstart_step = 20
-tend_step = 65
+tstart_step = 10
+tend_step = 90
 ni=0
 
-file_in="/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/output/E40.0_b0.0prod/prt/neg_cr.txt"
+file_in="/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/output/E160.0_b0.0prod_e0_0.3/prt/neg_cr.txt"
 print *,"Reading file ",trim(adjustl(file_in))," ..."
 open(unit=8,file=trim(adjustl(file_in)))
  i=1
@@ -30,6 +30,7 @@ open(unit=8,file=trim(adjustl(file_in)))
   it(i) = nint(t(i)/dt)
   ni(it(i)) = ni(it(i)) + 1
   i=i+1
+  !print *,i
  end do
  nlines=i-1
 close(8)
@@ -38,7 +39,8 @@ print *,"ni: ", (ni(i),i=1,60)
 
 do i=tstart_step, ceiling(tmax/dt)
  write(s_hlp,*)i;
- open(unit=8+i, file="/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/output/E40.0_b0.0prod/vtk/neg.vtk."//trim(adjustl(s_hlp)) )
+ open(unit=8+i, file="/home/oliiny/Work/Tmn_project/hyd_vs_prt_git/output/E160.0_b0.0prod_e0_0.3/prt/vtk/neg.vtk."&
+                 //trim(adjustl(s_hlp)) )
   write(8+i,'(A)')"# vtk DataFile Version 2.0"
   write(8+i,'(A)')"part_in"
   write(8+i,'(A)')"ASCII"
