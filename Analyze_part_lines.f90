@@ -26,9 +26,9 @@ program analyze_part_lines
  integer Npequil
 
  !Grid dimensions
- integer, parameter :: nx = 20
- integer, parameter :: ny = 20
- integer, parameter :: nz = 40
+ integer, parameter :: nx = 15
+ integer, parameter :: ny = 15
+ integer, parameter :: nz = 30
  integer tstart_step, tend_step
 
  !Cell spacings
@@ -54,16 +54,17 @@ program analyze_part_lines
  integer Npart_evt, Npart_file, nevt
 
  !Arrays on grid
- double precision, dimension(:,:,:,:,:), allocatable :: Tmn, TmnL
- double precision, dimension(:,:,:,:), allocatable :: Temp, MuB, MuS
+ double precision, dimension(:,:,:,:,:), allocatable :: Tmn, TmnL, jB
+ double precision, dimension(:,:,:,:), allocatable :: Temp, MuB, MuS, Bdens
  logical, dimension(:,:,:,:), allocatable :: pres_isotr
  double precision, dimension(:,:), allocatable :: mom_tot
  double precision, dimension(:), allocatable :: B_tot, S_tot, I3_tot
 
+
  
  integer fnum, mu, nu, io
  integer i, it,ix,iy,iz
- double precision r1(0:3), Tmn_hlp(0:3,0:3), TmnL_hlp(0:3, 0:3), umu_hlp(0:3), presx, presy, presz, pcrit
+ double precision r1(0:3), Tmn_hlp(0:3,0:3), TmnL_hlp(0:3, 0:3), umu_hlp(0:3), presx, presy, presz, pcrit, pres
 
 
  !===========================================================================================
@@ -79,10 +80,12 @@ program analyze_part_lines
 
  allocate(Tmn(0:9, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(TmnL(0:9, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(jB(0:3, tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
 
  allocate(Temp(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(MuB(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
  allocate(MuS(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
+ allocate(Bdens(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
 
  allocate(pres_isotr(tstart_step:tend_step+1, -nx:nx, -ny:ny, -nz:nz))
 
@@ -93,6 +96,7 @@ program analyze_part_lines
 
  Tmn      = 0.d0
  TmnL     = 0.d0
+ jB       = 0.d0
  pres_isotr = .FALSE.
 
  call create_output_folder_structure(E_collision, b_collision, dir_stamp, out_dir)
@@ -143,6 +147,8 @@ program analyze_part_lines
                                                         part%p(mu)*part%p(nu)/part%p(0)
            end do
           end do
+          
+          jB(0:3,it,ix,iy,iz) = jB(0:3,it,ix,iy,iz) + part%p(0:3)/part%p(0)*part%B
       
        end do 
 
@@ -164,12 +170,14 @@ program analyze_part_lines
  B_tot   =   B_tot/nevt
  S_tot   =   S_tot/nevt
  I3_tot  =  I3_tot/nevt
+ jB   =   jB/(nevt*dx*dy*dz)
 
  open(unit=8,file="output/"//trim(out_dir)//"/total_cons_quantities.txt")
    do it= tstart_step, tend_step + 1
     write(8,*)it*dt, mom_tot(0:3,it), B_tot(it), S_tot(it), I3_tot(it)
    end do
  close(8)
+
 
 !======================================================================================================
 ! Get Landau rest-frame energy density on the grid
@@ -191,6 +199,8 @@ program analyze_part_lines
     TmnL(7:8,it,ix,iy,iz) = TmnL_hlp(2,2:3)
     TmnL(9:9,it,ix,iy,iz) = TmnL_hlp(3,3:3)
 
+    Bdens(it,ix,iy,iz) = EuclidProduct( jB(0:3,it,ix,iy,iz), umu_hlp(0:3) )
+
     presx = TmnL_hlp(1,1)
     presy = TmnL_hlp(2,2)
     presz = TmnL_hlp(3,3)
@@ -204,6 +214,17 @@ program analyze_part_lines
   end do; end do; end do
  end do
 
+
+
+ print *,"Getting temperature"
+ call read_eos_tables()
+ do it = tstart_step, tend_step + 1
+  do ix=-nx,nx; do iy = -ny,ny; do iz = -nz,nz
+   Temp(it,ix,iy,iz) = GetTemp( TmnL(0,it,ix,iy,iz), Bdens(it,ix,iy,iz))*1.d-3
+   MuB(it,ix,iy,iz)  = GetMuB(  TmnL(0,it,ix,iy,iz), Bdens(it,ix,iy,iz))*1.d-3
+   MuS(it,ix,iy,iz)  = GetMuS(  TmnL(0,it,ix,iy,iz), Bdens(it,ix,iy,iz))*1.d-3
+  end do; end do; end do
+ end do
 !======================================================================================================
 !  Analysis of thermalization
 !======================================================================================================
@@ -276,15 +297,45 @@ program analyze_part_lines
   close(8)
  end do
 
+ print *,"Writing vtk: eT4 in cells"
+ do it=tstart_step, tend_step + 1
+  write(s_hlp,*)it; 
+  open(unit=8, file="output/"//trim(out_dir)//"/vtk/eT4.vtk."//trim(adjustl(s_hlp)) )
+   write(8,'(A)')"# vtk DataFile Version 2.0"
+   write(8,'(A)')"eT4"
+   write(8,'(A)')"ASCII"
+   write(8,'(A)')"DATASET STRUCTURED_POINTS"
+   write(8,'(A11,3I5)')"DIMENSIONS ", 2*nx+1, 2*ny+1, 2*nz+1
+   write(8,'(A8,3I5)')"SPACING ", 1, 1, 1
+   write(8,'(A7,3I5)')"ORIGIN ",-nx,-ny,-nz
+   write(8,'(A,X,I10)')"POINT_DATA", (2*nx+1)*(2*ny+1)*(2*nz+1)
+   write(8,'(A)')"SCALARS criterion float 1"
+   write(8,'(A)')"LOOKUP_TABLE default" 
+
+   do iz=-nz,nz; do iy=-ny,ny; do ix=-nx,nx
+
+    !pres = pressure_hadgas(Temp(it,ix,iy,iz),MuB(it,ix,iy,iz),MuS(it,ix,iy,iz) )
+    if (Temp(it,ix,iy,iz) > 0.d0) then
+     write(8,'(f10.3)') TmnL(0,it,ix,iy,iz)/ (Temp(it,ix,iy,iz)**4)
+    else
+     write(8,'(f10.3)') 0.d0
+    endif
+    
+   end do; end do; end do
+  close(8)
+ end do
+
 
  call allhist_finalize_and_output(out_dir)
 
 
  deallocate(Tmn)
  deallocate(TmnL)
+ deallocate(jB)
  deallocate(Temp)
  deallocate(MuB)
  deallocate(MuS)
+ deallocate(Bdens)
  deallocate(pres_isotr)
  deallocate(mom_tot)
  deallocate(B_tot)
